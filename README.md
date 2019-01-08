@@ -1,3 +1,26 @@
+# JSON Extension for the Liquid Argon Configuration Formats
+
+This is ~~a hack~~ an extension of 'JSON for Modern C++' by nlohmann.
+The purpose is to be able to provide a light-weight, header-only, module to parse various
+configuration files used by the US liquid argon TPC neutrino particle community.
+This includes configuration files for the following libraries:
+
+* [LArCV](https://github.com/larbys/larcv): Liquid Argon Computer Vision
+* [LArLite](https://github.com/larlight/larlite): Lite-Framework for LArSoft
+* LArSoft: The Liquid Argon Community's central framework.
+
+To start the parser extends the JSON standard to
+
+* not require quotes (`""`) around keys in the JSON file
+* to use a newline `\n` character as the value separator for items within a JSON event.
+  (For elements within an array (`[]`) one stills needs to use a comma, `,`.)
+* support comment lines marked as '#'
+
+These extensions are found in the `tufts_larcv` branch.
+Note: the Makefile also includes hooks to install into the LArCV-framework header (should change this).
+
+# Original README below
+
 [![JSON for Modern C++](https://raw.githubusercontent.com/nlohmann/json/master/doc/json.gif)](https://github.com/nlohmann/json/releases)
 
 [![Build Status](https://travis-ci.org/nlohmann/json.svg?branch=master)](https://travis-ci.org/nlohmann/json)
