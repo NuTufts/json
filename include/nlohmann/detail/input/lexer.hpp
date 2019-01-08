@@ -51,9 +51,11 @@ class lexer
         end_object,       ///< the character for object end `}`
         name_separator,   ///< the name separator `:`
         value_separator,  ///< the value separator `,`
+        value_separator_alt, ///< the value separator `\n`
         parse_error,      ///< indicating a parse error
         end_of_input,     ///< indicating the end of the input buffer
-        literal_or_value  ///< a literal or the begin of a value (only for diagnostics)
+        literal_or_value, ///< a literal or the begin of a value (only for diagnostics)
+        comment_separator ///< the character for a comment line `#`
     };
 
     /// return name of values of type token_type (only used for errors)
@@ -87,12 +89,16 @@ class lexer
                 return "':'";
             case token_type::value_separator:
                 return "','";
+            case token_type::value_separator_alt:
+                return "'\n'";
             case token_type::parse_error:
                 return "<parse error>";
             case token_type::end_of_input:
                 return "end of input";
             case token_type::literal_or_value:
                 return "'[', '{', or a literal";
+            case token_type::comment_separator:
+                return "'#'";
             // LCOV_EXCL_START
             default: // catch non-enum values
                 return "unknown token";
@@ -212,6 +218,52 @@ class lexer
         return true;
     }
 
+    /*!
+    @brief scan a comment
+
+    This function scans a comment -- not part of the JSON standard.
+    The comment starts with '#' and ends with '\n'. We fill the token_buffer.
+    If function returns successfully, token_buffer is *not* null-terminated (as it
+    may contain \0 bytes), and token_buffer.size() is the number of bytes in the
+    string.
+
+    @return token_type::comment_separator if string could be successfully scanned,
+            token_type::parse_error otherwise
+
+    @note In case of errors, variable error_message contains a textual
+          description.
+    */
+    token_type scan_comment()
+    {
+      // reset token_buffer (ignore opening quote)
+      reset();
+  
+      // we entered the function by reading an open quote
+      assert(current == '#');
+      add('#');
+  
+      while (true)
+      {
+        // get next character
+        switch (get())
+        {
+        case '\n': // closing newline
+          unget(); // we want to read the newline twice i guess
+          return token_type::comment_separator;
+          break;
+        case std::char_traits<char>::eof():
+          error_message = "invalid string: missing closing quote";
+          return token_type::parse_error;
+          break;
+        default:
+          add(current);
+          break;
+        }
+      }
+      return token_type::parse_error;
+    };
+  
+  
     /*!
     @brief scan a string literal
 
@@ -1337,6 +1389,19 @@ scan_number_done:
         return token_buffer;
     }
 
+    /// return current string value. We trim whitespace and other symbolic junk from beginning and end
+    string_t& get_string_trimmed()
+    {
+      size_t pos = token_buffer.find_last_not_of("\n\r\t ");
+      if ( pos<token_buffer.size() ) 
+        token_buffer = token_buffer.substr( 0, pos+1 );
+      pos = token_buffer.find_last_of("\n\r\t{}[]<>,");
+      if ( pos+1<token_buffer.size() )
+        token_buffer = token_buffer.substr( pos+1 );
+      return token_buffer;
+    }
+    
+
     /////////////////////
     // diagnostics
     /////////////////////
@@ -1401,75 +1466,169 @@ scan_number_done:
         return true;
     }
 
-    token_type scan()
+    /*!
+      @brief find the next token
+    */
+    token_type scan( bool include_newline=false )
     {
-        // initially, skip the BOM
-        if (position.chars_read_total == 0 and not skip_bom())
-        {
-            error_message = "invalid BOM; must be 0xEF 0xBB 0xBF if given";
-            return token_type::parse_error;
-        }
+      // initially, skip the BOM
+      if (position.chars_read_total == 0 and not skip_bom())
+      {
+        error_message = "invalid BOM; must be 0xEF 0xBB 0xBF if given";
+        return token_type::parse_error;
+      }
 
-        // read next character and ignore whitespace
+      // read next character and ignore whitespace
+      if ( !include_newline )
+      {
         do
         {
-            get();
+          get();
         }
         while (current == ' ' or current == '\t' or current == '\n' or current == '\r');
-
-        switch (current)
-        {
-            // structural characters
-            case '[':
-                return token_type::begin_array;
-            case ']':
-                return token_type::end_array;
-            case '{':
-                return token_type::begin_object;
-            case '}':
-                return token_type::end_object;
-            case ':':
-                return token_type::name_separator;
-            case ',':
-                return token_type::value_separator;
-
-            // literals
-            case 't':
-                return scan_literal("true", 4, token_type::literal_true);
-            case 'f':
-                return scan_literal("false", 5, token_type::literal_false);
-            case 'n':
-                return scan_literal("null", 4, token_type::literal_null);
-
-            // string
-            case '\"':
-                return scan_string();
-
-            // number
-            case '-':
-            case '0':
-            case '1':
-            case '2':
-            case '3':
-            case '4':
-            case '5':
-            case '6':
-            case '7':
-            case '8':
-            case '9':
-                return scan_number();
-
-            // end of input (the null byte is needed when parsing from
-            // string literals)
-            case '\0':
-            case std::char_traits<char>::eof():
-                return token_type::end_of_input;
-
-            // error
-            default:
-                error_message = "invalid literal";
-                return token_type::parse_error;
+      }
+      else {
+        do {
+          get();
         }
+        while (current == ' ' or current == '\t' or current == '\r');
+      }
+
+      switch (current)
+      {
+      // structural characters
+      case '[':
+        return token_type::begin_array;
+      case ']':
+        return token_type::end_array;
+      case '{':
+        return token_type::begin_object;
+      case '}':
+        return token_type::end_object;
+      case ':':
+        return token_type::name_separator;
+      case ',':
+        return token_type::value_separator;
+      case '\n':
+        return token_type::value_separator_alt;
+
+      // literals
+      case 't':
+        return scan_literal("true", 4, token_type::literal_true);
+      case 'f':
+        return scan_literal("false", 5, token_type::literal_false);
+      case 'n':
+        return scan_literal("null", 4, token_type::literal_null);
+
+      // string
+      case '\"':
+        return scan_string();
+
+      // comment
+      case '#':
+        return scan_comment();        
+
+      // number
+      case '-':
+      case '0':
+      case '1':
+      case '2':
+      case '3':
+      case '4':
+      case '5':
+      case '6':
+      case '7':
+      case '8':
+      case '9':
+        return scan_number();
+
+      // end of input (the null byte is needed when parsing from
+      // string literals)
+      case '\0':
+      case std::char_traits<char>::eof():
+        return token_type::end_of_input;
+
+      // error
+      default:
+        error_message = "invalid literal";
+        return token_type::parse_error;
+      }
+    }
+
+    /*!
+    @brief scan the input stream until we hit a structural symbol
+
+    We use this to find the non-string keys. This is none-standard JSON.
+
+    @return token_type of the found structural symbol
+    */  
+    token_type scan_to_next_structure()
+    {
+      // get token up until whitespace
+      std::string token = get_token_string();
+      size_t pos = token.find_last_of("\n\t\r ,:{}[]");
+      if ( pos>0 && pos<token.size() ) {
+        token = token.substr(pos+1,std::string::npos);
+      }
+        
+      // reset token_buffer (includes the current character)
+      reset();
+  
+      // fill in first part of literal into buffer
+      for ( size_t c=0; c<token.size()-1; c++ )
+        add(token.at(c));
+  
+      // read next character until next token
+      do {
+        add(current); // append to token_buffer
+        get();
+      } while ( !is_structural(current) );
+  
+      std::char_traits<char>::int_type structural_char = current;
+      unget(); // go back one character before structural object
+  
+      switch (structural_char) {
+      case '[':
+        return token_type::begin_array;
+      case ']':
+        return token_type::end_array;
+      case '{':
+        return token_type::begin_object;
+      case '}':
+        return token_type::end_object;
+      case ':':
+        return token_type::name_separator;
+      case ',':
+        return token_type::value_separator;
+      case '\n':
+          return token_type::value_separator_alt;
+      case '#':
+        return token_type::comment_separator;
+      default:
+        return token_type::parse_error;
+      };
+      return token_type::parse_error;
+    }
+
+    /*! @brief return true is symbol is structurl
+     */
+    bool is_structural( std::char_traits<char>::int_type& c )
+    {
+      switch (c) {
+      // structural characters
+      case '[':
+      case ']':
+      case '{':
+      case '}':
+      case ':':
+      case ',':
+      case '\n':
+      case '#':
+        return true;
+      default:
+        return false;
+      }
+      return false;
     }
 
   private:
