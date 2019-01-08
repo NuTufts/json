@@ -182,8 +182,8 @@ class parser
                 {
                     case token_type::comment_separator:
                     {
-                      get_token();
-                      continue;
+                        get_token();
+                        continue;
                     }
                     case token_type::begin_object:
                     {
@@ -215,24 +215,27 @@ class parser
                         //     return false;
                         // }
                         // parse key (key does not need string literal)
-                        if ( last_token == token_type::value_string) {
-                          if (JSON_UNLIKELY(not sax->key(m_lexer.get_string())))
+                        if ( last_token == token_type::value_string)
+                        {
+                            if (JSON_UNLIKELY(not sax->key(m_lexer.get_string())))
                             {
-                              return false;
+                                return false;
                             }
                         }
-                        else if ( m_lexer.scan_to_next_structure()==token_type::name_separator ) {
-                          if (JSON_UNLIKELY(not sax->key(m_lexer.get_string_trimmed())) ) 
+                        else if ( m_lexer.scan_to_next_structure() == token_type::name_separator )
+                        {
+                            if (JSON_UNLIKELY(not sax->key(m_lexer.get_string_trimmed())) )
                             {
-                              return false;
+                                return false;
                             }
-                          last_token = token_type::value_string;                          
+                            last_token = token_type::value_string;
                         }
-                        else {
-                          return sax->parse_error(m_lexer.get_position(),
-                                                  m_lexer.get_token_string(),
-                                                  parse_error::create(101, m_lexer.get_position(),
-                                                                      exception_message(token_type::value_string, "object key")));
+                        else
+                        {
+                            return sax->parse_error(m_lexer.get_position(),
+                                                    m_lexer.get_token_string(),
+                                                    parse_error::create(101, m_lexer.get_position(),
+                                                            exception_message(token_type::value_string, "object key")));
                         }
 
 
@@ -420,8 +423,8 @@ class parser
                 else  // object
                 {
                     // comma -> next value
-                    //std::cout << "comma -> next value: " << m_lexer.token_type_name(last_token) << std::endl;                  
-                    if (get_token_include_newline() == token_type::value_separator || last_token == token_type::value_separator_alt)                  
+                    //std::cout << "comma -> next value: " << m_lexer.token_type_name(last_token) << std::endl;
+                    if (get_token_include_newline() == token_type::value_separator || last_token == token_type::value_separator_alt)
                     {
                         // parse key
                         // if (JSON_UNLIKELY(get_token() != token_type::value_string))
@@ -439,44 +442,48 @@ class parser
                         //     }
                         // }
                         // read the next value with next get_token
-                      
-                        if ( get_token()!=token_type::end_object && last_token!=token_type::comment_separator ) {
 
-                          // parse key (key does not need to be string literal)
-                          if ( last_token == token_type::value_string) {
-                            if (JSON_UNLIKELY(not sax->key(m_lexer.get_string())))
-                              {
-                                return false;
-                              }
-                          }
-                          else if ( m_lexer.scan_to_next_structure()==token_type::name_separator ) {
+                        if ( get_token() != token_type::end_object && last_token != token_type::comment_separator )
+                        {
 
-                            if (JSON_UNLIKELY(not sax->key(m_lexer.get_string_trimmed())) )
-                              {
-                                return false;
-                              }
-                            last_token = token_type::value_string;
-                          }
-                          else {
-                            return sax->parse_error(m_lexer.get_position(),
-                                                    m_lexer.get_token_string(),
-                                                    parse_error::create(101, m_lexer.get_position(),
-                                                                        exception_message(token_type::value_string, "object key")));
-                          }
-                      
-                          // parse separator (:)
-                          if (JSON_UNLIKELY(get_token() != token_type::name_separator))
+                            // parse key (key does not need to be string literal)
+                            if ( last_token == token_type::value_string)
                             {
-                              return sax->parse_error(m_lexer.get_position(),
-                                                      m_lexer.get_token_string(),
-                                                      parse_error::create(101, m_lexer.get_position(),
-                                                                          exception_message(token_type::name_separator, "object separator")));
+                                if (JSON_UNLIKELY(not sax->key(m_lexer.get_string())))
+                                {
+                                    return false;
+                                }
                             }
-                          
-                          // parse values
-                          get_token();
-                          
-                          continue;
+                            else if ( m_lexer.scan_to_next_structure() == token_type::name_separator )
+                            {
+
+                                if (JSON_UNLIKELY(not sax->key(m_lexer.get_string_trimmed())) )
+                                {
+                                    return false;
+                                }
+                                last_token = token_type::value_string;
+                            }
+                            else
+                            {
+                                return sax->parse_error(m_lexer.get_position(),
+                                                        m_lexer.get_token_string(),
+                                                        parse_error::create(101, m_lexer.get_position(),
+                                                                exception_message(token_type::value_string, "object key")));
+                            }
+
+                            // parse separator (:)
+                            if (JSON_UNLIKELY(get_token() != token_type::name_separator))
+                            {
+                                return sax->parse_error(m_lexer.get_position(),
+                                                        m_lexer.get_token_string(),
+                                                        parse_error::create(101, m_lexer.get_position(),
+                                                                exception_message(token_type::name_separator, "object separator")));
+                            }
+
+                            // parse values
+                            get_token();
+
+                            continue;
                         }
                     }
 
@@ -497,12 +504,13 @@ class parser
                         skip_to_state_evaluation = true;
                         continue;
                     }
-                    else if ( JSON_UNLIKELY( last_token == token_type::comment_separator ) ) {
-                      std::cout << "found comment line: {" << m_lexer.get_string() << "}" << std::endl;
-                      // we basically redo this line. use below to go to beginning effectively.
-                      skip_to_state_evaluation = true;
-                      continue;
-                    }                    
+                    else if ( JSON_UNLIKELY( last_token == token_type::comment_separator ) )
+                    {
+                        std::cout << "found comment line: {" << m_lexer.get_string() << "}" << std::endl;
+                        // we basically redo this line. use below to go to beginning effectively.
+                        skip_to_state_evaluation = true;
+                        continue;
+                    }
                     else
                     {
                         return sax->parse_error(m_lexer.get_position(),
@@ -524,7 +532,7 @@ class parser
     /// get token -- token end can include newline '\n'
     token_type get_token_include_newline()
     {
-      return (last_token = m_lexer.scan(true));
+        return (last_token = m_lexer.scan(true));
     }
 
     std::string exception_message(const token_type expected, const std::string& context)

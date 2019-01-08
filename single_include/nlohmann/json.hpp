@@ -2503,9 +2503,11 @@ class lexer
         end_object,       ///< the character for object end `}`
         name_separator,   ///< the name separator `:`
         value_separator,  ///< the value separator `,`
+        value_separator_alt, ///< the value separator `\n`
         parse_error,      ///< indicating a parse error
         end_of_input,     ///< indicating the end of the input buffer
-        literal_or_value  ///< a literal or the begin of a value (only for diagnostics)
+        literal_or_value, ///< a literal or the begin of a value (only for diagnostics)
+        comment_separator ///< the character for a comment line `#`
     };
 
     /// return name of values of type token_type (only used for errors)
@@ -2539,12 +2541,16 @@ class lexer
                 return "':'";
             case token_type::value_separator:
                 return "','";
+            case token_type::value_separator_alt:
+                return "'\n'";
             case token_type::parse_error:
                 return "<parse error>";
             case token_type::end_of_input:
                 return "end of input";
             case token_type::literal_or_value:
                 return "'[', '{', or a literal";
+            case token_type::comment_separator:
+                return "'#'";
             // LCOV_EXCL_START
             default: // catch non-enum values
                 return "unknown token";
@@ -2663,6 +2669,52 @@ class lexer
 
         return true;
     }
+
+    /*!
+    @brief scan a comment
+
+    This function scans a comment -- not part of the JSON standard.
+    The comment starts with '#' and ends with '\n'. We fill the token_buffer.
+    If function returns successfully, token_buffer is *not* null-terminated (as it
+    may contain \0 bytes), and token_buffer.size() is the number of bytes in the
+    string.
+
+    @return token_type::comment_separator if string could be successfully scanned,
+            token_type::parse_error otherwise
+
+    @note In case of errors, variable error_message contains a textual
+          description.
+    */
+    token_type scan_comment()
+    {
+        // reset token_buffer (ignore opening quote)
+        reset();
+
+        // we entered the function by reading an open quote
+        assert(current == '#');
+        add('#');
+
+        while (true)
+        {
+            // get next character
+            switch (get())
+            {
+                case '\n': // closing newline
+                    unget(); // we want to read the newline twice i guess
+                    return token_type::comment_separator;
+                    break;
+                case std::char_traits<char>::eof():
+                    error_message = "invalid string: missing closing quote";
+                    return token_type::parse_error;
+                    break;
+                default:
+                    add(current);
+                    break;
+            }
+        }
+        return token_type::parse_error;
+    };
+
 
     /*!
     @brief scan a string literal
@@ -3789,6 +3841,23 @@ scan_number_done:
         return token_buffer;
     }
 
+    /// return current string value. We trim whitespace and other symbolic junk from beginning and end
+    string_t& get_string_trimmed()
+    {
+        size_t pos = token_buffer.find_last_not_of("\n\r\t ");
+        if ( pos < token_buffer.size() )
+        {
+            token_buffer = token_buffer.substr( 0, pos + 1 );
+        }
+        pos = token_buffer.find_last_of("\n\r\t{}[]<>,");
+        if ( pos + 1 < token_buffer.size() )
+        {
+            token_buffer = token_buffer.substr( pos + 1 );
+        }
+        return token_buffer;
+    }
+
+
     /////////////////////
     // diagnostics
     /////////////////////
@@ -3853,7 +3922,10 @@ scan_number_done:
         return true;
     }
 
-    token_type scan()
+    /*!
+      @brief find the next token
+    */
+    token_type scan( bool include_newline = false )
     {
         // initially, skip the BOM
         if (position.chars_read_total == 0 and not skip_bom())
@@ -3863,11 +3935,22 @@ scan_number_done:
         }
 
         // read next character and ignore whitespace
-        do
+        if ( !include_newline )
         {
-            get();
+            do
+            {
+                get();
+            }
+            while (current == ' ' or current == '\t' or current == '\n' or current == '\r');
         }
-        while (current == ' ' or current == '\t' or current == '\n' or current == '\r');
+        else
+        {
+            do
+            {
+                get();
+            }
+            while (current == ' ' or current == '\t' or current == '\r');
+        }
 
         switch (current)
         {
@@ -3884,6 +3967,8 @@ scan_number_done:
                 return token_type::name_separator;
             case ',':
                 return token_type::value_separator;
+            case '\n':
+                return token_type::value_separator_alt;
 
             // literals
             case 't':
@@ -3896,6 +3981,10 @@ scan_number_done:
             // string
             case '\"':
                 return scan_string();
+
+            // comment
+            case '#':
+                return scan_comment();
 
             // number
             case '-':
@@ -3922,6 +4011,89 @@ scan_number_done:
                 error_message = "invalid literal";
                 return token_type::parse_error;
         }
+    }
+
+    /*!
+    @brief scan the input stream until we hit a structural symbol
+
+    We use this to find the non-string keys. This is none-standard JSON.
+
+    @return token_type of the found structural symbol
+    */
+    token_type scan_to_next_structure()
+    {
+        // get token up until whitespace
+        std::string token = get_token_string();
+        size_t pos = token.find_last_of("\n\t\r ,:{}[]");
+        if ( pos > 0 && pos < token.size() )
+        {
+            token = token.substr(pos + 1, std::string::npos);
+        }
+
+        // reset token_buffer (includes the current character)
+        reset();
+
+        // fill in first part of literal into buffer
+        for ( size_t c = 0; c < token.size() - 1; c++ )
+        {
+            add(token.at(c));
+        }
+
+        // read next character until next token
+        do
+        {
+            add(current); // append to token_buffer
+            get();
+        }
+        while ( !is_structural(current) );
+
+        std::char_traits<char>::int_type structural_char = current;
+        unget(); // go back one character before structural object
+
+        switch (structural_char)
+        {
+            case '[':
+                return token_type::begin_array;
+            case ']':
+                return token_type::end_array;
+            case '{':
+                return token_type::begin_object;
+            case '}':
+                return token_type::end_object;
+            case ':':
+                return token_type::name_separator;
+            case ',':
+                return token_type::value_separator;
+            case '\n':
+                return token_type::value_separator_alt;
+            case '#':
+                return token_type::comment_separator;
+            default:
+                return token_type::parse_error;
+        };
+        return token_type::parse_error;
+    }
+
+    /*! @brief return true is symbol is structurl
+     */
+    bool is_structural( std::char_traits<char>::int_type& c )
+    {
+        switch (c)
+        {
+            // structural characters
+            case '[':
+            case ']':
+            case '{':
+            case '}':
+            case ':':
+            case ',':
+            case '\n':
+            case '#':
+                return true;
+            default:
+                return false;
+        }
+        return false;
     }
 
   private:
@@ -4993,6 +5165,11 @@ class parser
                 // invariant: get_token() was called before each iteration
                 switch (last_token)
                 {
+                    case token_type::comment_separator:
+                    {
+                        get_token();
+                        continue;
+                    }
                     case token_type::begin_object:
                     {
                         if (JSON_UNLIKELY(not sax->start_object(std::size_t(-1))))
@@ -5010,18 +5187,42 @@ class parser
                             break;
                         }
 
-                        // parse key
-                        if (JSON_UNLIKELY(last_token != token_type::value_string))
+                        // parse key [old code]
+                        // if (JSON_UNLIKELY(last_token != token_type::value_string))
+                        // {
+                        //     return sax->parse_error(m_lexer.get_position(),
+                        //                             m_lexer.get_token_string(),
+                        //                             parse_error::create(101, m_lexer.get_position(),
+                        //                                     exception_message(token_type::value_string, "object key")));
+                        // }
+                        // if (JSON_UNLIKELY(not sax->key(m_lexer.get_string())))
+                        // {
+                        //     return false;
+                        // }
+                        // parse key (key does not need string literal)
+                        if ( last_token == token_type::value_string)
+                        {
+                            if (JSON_UNLIKELY(not sax->key(m_lexer.get_string())))
+                            {
+                                return false;
+                            }
+                        }
+                        else if ( m_lexer.scan_to_next_structure() == token_type::name_separator )
+                        {
+                            if (JSON_UNLIKELY(not sax->key(m_lexer.get_string_trimmed())) )
+                            {
+                                return false;
+                            }
+                            last_token = token_type::value_string;
+                        }
+                        else
                         {
                             return sax->parse_error(m_lexer.get_position(),
                                                     m_lexer.get_token_string(),
                                                     parse_error::create(101, m_lexer.get_position(),
                                                             exception_message(token_type::value_string, "object key")));
                         }
-                        if (JSON_UNLIKELY(not sax->key(m_lexer.get_string())))
-                        {
-                            return false;
-                        }
+
 
                         // parse separator (:)
                         if (JSON_UNLIKELY(get_token() != token_type::name_separator))
@@ -5207,36 +5408,68 @@ class parser
                 else  // object
                 {
                     // comma -> next value
-                    if (get_token() == token_type::value_separator)
+                    //std::cout << "comma -> next value: " << m_lexer.token_type_name(last_token) << std::endl;
+                    if (get_token_include_newline() == token_type::value_separator || last_token == token_type::value_separator_alt)
                     {
                         // parse key
-                        if (JSON_UNLIKELY(get_token() != token_type::value_string))
+                        // if (JSON_UNLIKELY(get_token() != token_type::value_string))
+                        // {
+                        //     return sax->parse_error(m_lexer.get_position(),
+                        //                             m_lexer.get_token_string(),
+                        //                             parse_error::create(101, m_lexer.get_position(),
+                        //                                     exception_message(token_type::value_string, "object key")));
+                        // }
+                        // else
+                        // {
+                        //     if (JSON_UNLIKELY(not sax->key(m_lexer.get_string())))
+                        //     {
+                        //         return false;
+                        //     }
+                        // }
+                        // read the next value with next get_token
+
+                        if ( get_token() != token_type::end_object && last_token != token_type::comment_separator )
                         {
-                            return sax->parse_error(m_lexer.get_position(),
-                                                    m_lexer.get_token_string(),
-                                                    parse_error::create(101, m_lexer.get_position(),
-                                                            exception_message(token_type::value_string, "object key")));
-                        }
-                        else
-                        {
-                            if (JSON_UNLIKELY(not sax->key(m_lexer.get_string())))
+
+                            // parse key (key does not need to be string literal)
+                            if ( last_token == token_type::value_string)
                             {
-                                return false;
+                                if (JSON_UNLIKELY(not sax->key(m_lexer.get_string())))
+                                {
+                                    return false;
+                                }
                             }
-                        }
+                            else if ( m_lexer.scan_to_next_structure() == token_type::name_separator )
+                            {
 
-                        // parse separator (:)
-                        if (JSON_UNLIKELY(get_token() != token_type::name_separator))
-                        {
-                            return sax->parse_error(m_lexer.get_position(),
-                                                    m_lexer.get_token_string(),
-                                                    parse_error::create(101, m_lexer.get_position(),
-                                                            exception_message(token_type::name_separator, "object separator")));
-                        }
+                                if (JSON_UNLIKELY(not sax->key(m_lexer.get_string_trimmed())) )
+                                {
+                                    return false;
+                                }
+                                last_token = token_type::value_string;
+                            }
+                            else
+                            {
+                                return sax->parse_error(m_lexer.get_position(),
+                                                        m_lexer.get_token_string(),
+                                                        parse_error::create(101, m_lexer.get_position(),
+                                                                exception_message(token_type::value_string, "object key")));
+                            }
 
-                        // parse values
-                        get_token();
-                        continue;
+                            // parse separator (:)
+                            if (JSON_UNLIKELY(get_token() != token_type::name_separator))
+                            {
+                                return sax->parse_error(m_lexer.get_position(),
+                                                        m_lexer.get_token_string(),
+                                                        parse_error::create(101, m_lexer.get_position(),
+                                                                exception_message(token_type::name_separator, "object separator")));
+                            }
+
+                            // parse values
+                            get_token();
+
+                            continue;
+                        }
                     }
 
                     // closing }
@@ -5256,6 +5489,13 @@ class parser
                         skip_to_state_evaluation = true;
                         continue;
                     }
+                    else if ( JSON_UNLIKELY( last_token == token_type::comment_separator ) )
+                    {
+                        std::cout << "found comment line: {" << m_lexer.get_string() << "}" << std::endl;
+                        // we basically redo this line. use below to go to beginning effectively.
+                        skip_to_state_evaluation = true;
+                        continue;
+                    }
                     else
                     {
                         return sax->parse_error(m_lexer.get_position(),
@@ -5263,15 +5503,21 @@ class parser
                                                 parse_error::create(101, m_lexer.get_position(),
                                                         exception_message(token_type::end_object, "object")));
                     }
-                }
-            }
-        }
-    }
+                }//end of else (object)
+            } // else (not states.empty())
+        }//while (true)
+    }//sax_parse_internal
 
     /// get next token from lexer
     token_type get_token()
     {
         return (last_token = m_lexer.scan());
+    }
+
+    /// get token -- token end can include newline '\n'
+    token_type get_token_include_newline()
+    {
+        return (last_token = m_lexer.scan(true));
     }
 
     std::string exception_message(const token_type expected, const std::string& context)
