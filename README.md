@@ -9,7 +9,7 @@ This includes configuration files for the following libraries:
 * [LArLite](https://github.com/larlight/larlite): Lite-Framework for LArSoft
 * LArSoft: The Liquid Argon Community's central framework.
 
-To start the parser extends the JSON standard to
+To start (i.e. currently implemented) the parser extends the JSON standard to
 
 * not require quotes (`""`) around keys in the JSON file
 * to use a newline `\n` character as the value separator for items within a JSON event.
@@ -17,7 +17,24 @@ To start the parser extends the JSON standard to
 * support comment lines marked as '#'
 
 These extensions are found in the `tufts_larcv` branch.
-Note: the Makefile also includes hooks to install into the LArCV-framework header (should change this).
+Note: the Makefile also includes hooks to install into the LArCV-framework header (should remove this).
+
+## Features to be added (for LArCV/larlite)
+
+* save comments which start with `#include` to an array of the first JSON event.
+  This is to facilitate patching in references to JSON objects in other files.
+* Use the original package's patching mechanism to fold these references in.
+
+## Framework features needed by LArSoft
+
+Probably never going to have full feature support. And why? If running a larsoft `fhicl` file,
+we will be in an `art/cetlib` environment -- so use that.
+But here are some notes on some unsupported grammar anyway:
+
+* access and assign using following grammar: `W.X.Y: Z`
+* `@table` command inserts key:value pairs from one JSON object into another
+* `key: @local` inserts JSON object into another as value for 'key'
+* `BEGIN_PROLOG` keyword
 
 # Original README below
 
