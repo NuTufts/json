@@ -36,7 +36,11 @@ CXX=clang++
 
 AMALGAMATED_FILE=single_include/nlohmann/json.hpp
 
+ifdef LARCV_BUILDDIR
 LARCV_JSON_HEADER=${LARCV_BUILDDIR}/include/json/nlohmann/json.hpp
+else
+LARCV_JSON_HEADER=
+endif
 
 # main target
 all: $(LARCV_JSON_HEADER)
