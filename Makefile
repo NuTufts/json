@@ -36,8 +36,10 @@ CXX=clang++
 
 AMALGAMATED_FILE=single_include/nlohmann/json.hpp
 
+LARCV_JSON_HEADER=${LARCV_BUILDDIR}/include/json/nlohmann/json.hpp
+
 # main target
-all:
+all: $(LARCV_JSON_HEADER)
 	@echo "amalgamate - amalgamate file single_include/nlohmann/json.hpp from the include/nlohmann sources"
 	@echo "ChangeLog.md - generate ChangeLog file"
 	@echo "check - compile and execute test suite"
@@ -345,3 +347,8 @@ release:
 	mv single_include/nlohmann/json.hpp.asc release_files
 	cd release_files ; shasum -a 256 json.hpp > hashes.txt
 	cd release_files ; shasum -a 256 include.zip >> hashes.txt
+
+$(LARCV_JSON_HEADER):
+	@echo "<< install single-include header >>"
+	@mkdir -p ${LARCV_BUILDDIR}/include/json/nlohmann
+	@cp ${LARCV_BASEDIR}/core/json/single_include/nlohmann/json.hpp ${LARCV_JSON_HEADER}
