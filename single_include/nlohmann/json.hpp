@@ -5491,7 +5491,7 @@ class parser
                     }
                     else if ( JSON_UNLIKELY( last_token == token_type::comment_separator ) )
                     {
-                        std::cout << "found comment line: {" << m_lexer.get_string() << "}" << std::endl;
+                        //std::cout << "found comment line: {" << m_lexer.get_string() << "}" << std::endl;
                         // we basically redo this line. use below to go to beginning effectively.
                         skip_to_state_evaluation = true;
                         continue;
